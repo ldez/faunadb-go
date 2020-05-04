@@ -1,6 +1,11 @@
 package faunadb
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+	"strconv"
+	"strings"
+)
 
 /*
 Expr is the base type for FaunaDB query language expressions.
@@ -21,6 +26,7 @@ custom data structures. For example:
 
 */
 type Expr interface {
+	String() string
 	expr() // Make sure only internal structures can be marked as valid expressions
 }
 
@@ -29,8 +35,28 @@ type unescapedArr []Expr
 type invalidExpr struct{ err error }
 
 func (obj unescapedObj) expr() {}
+func (obj unescapedObj) String() string {
+	if len(obj) == 1 && obj["object"] != nil {
+		return fmt.Sprintf("%s", obj["object"])
+	}
+	strs := []string{}
+	for k, v := range obj {
+		strs = append(strs, fmt.Sprintf("%s: %s", strconv.Quote(k), v))
+	}
+	return fmt.Sprintf("Obj{%s}", strings.Join(strs, ", "))
+}
+
 func (arr unescapedArr) expr() {}
-func (inv invalidExpr) expr()  {}
+func (arr unescapedArr) String() string {
+	strs := []string{}
+	for _, v := range arr {
+		strs = append(strs, fmt.Sprintf("%s", v))
+	}
+	return fmt.Sprintf("Arr{%s}", strings.Join(strs, ", "))
+}
+
+func (inv invalidExpr) expr()          {}
+func (inv invalidExpr) String() string { return "invalidExpr" }
 
 func (inv invalidExpr) MarshalJSON() ([]byte, error) {
 	return nil, inv.err
@@ -39,11 +65,31 @@ func (inv invalidExpr) MarshalJSON() ([]byte, error) {
 // Obj is a expression shortcut to represent any valid JSON object
 type Obj map[string]interface{}
 
+func (obj Obj) expr() {}
+
+func (obj Obj) String() string {
+	if len(obj) == 1 && obj["object"] != nil {
+		return fmt.Sprintf("%s", obj["object"])
+	}
+	strs := []string{}
+	for k, v := range obj {
+		strs = append(strs, fmt.Sprintf("%s: %s", k, v))
+	}
+	return fmt.Sprintf("Obj{%s}", strings.Join(strs, ", "))
+}
+
 // Arr is a expression shortcut to represent any valid JSON array
 type Arr []interface{}
 
-func (obj Obj) expr() {}
 func (arr Arr) expr() {}
+
+func (arr Arr) String() string {
+	strs := []string{}
+	for _, v := range arr {
+		strs = append(strs, fmt.Sprintf("%s", v))
+	}
+	return fmt.Sprintf("Arr{%s}", strings.Join(strs, ", "))
+}
 
 // MarshalJSON implements json.Marshaler for Obj expression
 func (obj Obj) MarshalJSON() ([]byte, error) { return json.Marshal(wrap(obj)) }
@@ -52,41 +98,12 @@ func (obj Obj) MarshalJSON() ([]byte, error) { return json.Marshal(wrap(obj)) }
 func (arr Arr) MarshalJSON() ([]byte, error) { return json.Marshal(wrap(arr)) }
 
 // OptionalParameter describes optional parameters for query language functions
-type OptionalParameter func(unescapedObj)
+type OptionalParameter func(optionalKeysMapping)
 
-func applyOptionals(options []OptionalParameter, fn unescapedObj) Expr {
+type optionalKeysMapping map[string]*Expr
+
+func applyOptionals(mappings optionalKeysMapping, options []OptionalParameter) {
 	for _, option := range options {
-		option(fn)
+		option(mappings)
 	}
-	return fn
-}
-
-func fn1(k1 string, v1 interface{}, options ...OptionalParameter) Expr {
-	return applyOptionals(options, unescapedObj{
-		k1: wrap(v1),
-	})
-}
-
-func fn2(k1 string, v1 interface{}, k2 string, v2 interface{}, options ...OptionalParameter) Expr {
-	return applyOptionals(options, unescapedObj{
-		k1: wrap(v1),
-		k2: wrap(v2),
-	})
-}
-
-func fn3(k1 string, v1 interface{}, k2 string, v2 interface{}, k3 string, v3 interface{}, options ...OptionalParameter) Expr {
-	return applyOptionals(options, unescapedObj{
-		k1: wrap(v1),
-		k2: wrap(v2),
-		k3: wrap(v3),
-	})
-}
-
-func fn4(k1 string, v1 interface{}, k2 string, v2 interface{}, k3 string, v3 interface{}, k4 string, v4 interface{}, options ...OptionalParameter) Expr {
-	return applyOptionals(options, unescapedObj{
-		k1: wrap(v1),
-		k2: wrap(v2),
-		k3: wrap(v3),
-		k4: wrap(v4),
-	})
 }
